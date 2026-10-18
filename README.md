@@ -26,3 +26,5 @@ LiveContainer에서 돌리는 iOS용 **백그라운드 다운로더 브라우저
 ## 빌드
 GitHub Actions(macOS)에서 XcodeGen → `xcodebuild` (서명 없음) → `BackDown.ipa`.
 로컬(macOS): `brew install xcodegen && xcodegen generate && open BackDown.xcodeproj`
+
+앱 아이콘은 `scripts/make_icon.py`로 생성 (Pillow 필요): `python scripts/make_icon.py BackDown/Assets.xcassets/AppIcon.appiconset/AppIcon.png`
