@@ -5,6 +5,7 @@ struct DownloadsView: View {
     let addURL: (URL) -> Void
 
     @AppStorage(KeepAlive.enabledKey) private var keepAlive = true
+    @AppStorage(DownloadSettings.connectionsKey) private var connections = DownloadSettings.defaultConnections
     @State private var showAdd = false
     @State private var newURL = ""
 
@@ -47,6 +48,13 @@ struct DownloadsView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
                         Toggle("백그라운드 유지 (무음 오디오)", isOn: $keepAlive)
+                        Menu("동시 연결: \(connections)개") {
+                            Picker("동시 연결 수", selection: $connections) {
+                                ForEach(DownloadSettings.connectionOptions, id: \.self) { n in
+                                    Text(n == 1 ? "1개 (분할 안 함)" : "\(n)개").tag(n)
+                                }
+                            }
+                        }
                         Button("완료 항목 목록 정리") { manager.clearCompleted() }
                         Button("파일 앱에서 열기") { openInFiles(manager.downloadsDirectory) }
                     } label: { Image(systemName: "gearshape") }
@@ -72,6 +80,7 @@ struct DownloadsView: View {
                 }
             }
             .onChange(of: keepAlive) { _ in KeepAlive.shared.settingsChanged() }
+            .onChange(of: connections) { _ in manager.connectionsChanged() }
         }
     }
 }
@@ -98,7 +107,7 @@ struct DownloadRow: View {
             if item.state != .completed {
                 if let fraction = item.fraction {
                     ProgressView(value: fraction)
-                } else if item.state == .downloading {
+                } else if item.state == .downloading || item.state == .merging {
                     ProgressView().progressViewStyle(.linear)
                 }
             }
@@ -110,7 +119,7 @@ struct DownloadRow: View {
         .padding(.vertical, 4)
         .contextMenu {
             Button { UIPasteboard.general.url = item.url } label: { Label("원본 URL 복사", systemImage: "link") }
-            if !item.isForeground && item.state != .completed {
+            if !item.isForeground && item.state != .completed && item.state != .merging {
                 Button { manager.restart(item.id) } label: { Label("처음부터 다시 받기", systemImage: "arrow.counterclockwise") }
             }
             if item.state == .completed {
@@ -132,6 +141,8 @@ struct DownloadRow: View {
             }
         case .completed:
             ShareLink(item: manager.fileURL(for: item)) { Image(systemName: "square.and.arrow.up") }
+        case .merging:
+            EmptyView()
         }
     }
 
@@ -142,12 +153,13 @@ struct DownloadRow: View {
         case .paused: return "pause.circle.fill"
         case .failed: return "exclamationmark.circle.fill"
         case .completed: return "checkmark.circle.fill"
+        case .merging: return "arrow.triangle.merge"
         }
     }
 
     private var color: Color {
         switch item.state {
-        case .queued, .downloading: return .accentColor
+        case .queued, .downloading, .merging: return .accentColor
         case .waiting, .paused: return .orange
         case .failed: return .red
         case .completed: return .green
@@ -159,7 +171,9 @@ struct DownloadRow: View {
         let sizePart = item.totalBytes > 0 ? "\(received) / \(Self.bytes(item.totalBytes))" : received
         switch item.state {
         case .queued:
-            return "대기 중"
+            return manager.isProbing(item.id) ? "서버 확인 중…" : "대기 중"
+        case .merging:
+            return "파일 합치는 중… · \(Self.bytes(item.totalBytes))"
         case .downloading:
             var parts = [sizePart]
             if let speed, speed > 0 {
@@ -169,6 +183,8 @@ struct DownloadRow: View {
                     if let eta = Self.duration(remaining) { parts.append("\(eta) 남음") }
                 }
             }
+            let connections = manager.activeConnections(for: item.id)
+            if connections > 1 { parts.append("\(connections)개 연결") }
             if item.isForeground { parts.append("앱 내 다운로드") }
             return parts.joined(separator: " · ")
         case .waiting:

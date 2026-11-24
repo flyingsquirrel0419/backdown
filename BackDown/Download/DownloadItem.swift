@@ -7,6 +7,17 @@ enum DownloadState: String, Codable {
     case paused
     case failed
     case completed
+    case merging    // 분할 다운로드 조각을 하나로 합치는 중
+}
+
+/// 분할(멀티 커넥션) 다운로드의 한 조각. 바이트 범위는 [start, end] (end 포함).
+struct DownloadSegment: Codable, Equatable {
+    var start: Int64
+    var end: Int64
+    var done = false
+    var retries = 0
+
+    var length: Int64 { end - start + 1 }
 }
 
 struct DownloadItem: Codable, Identifiable, Equatable {
@@ -26,6 +37,10 @@ struct DownloadItem: Codable, Identifiable, Equatable {
     var isForeground: Bool = false
     var createdAt = Date()
     var completedAt: Date?
+    /// nil이면 단일 연결 다운로드, 있으면 Range 요청 여러 개로 병렬 다운로드
+    var segments: [DownloadSegment]? = nil
+    /// 조각 요청에 If-Range로 붙일 ETag/Last-Modified (도중에 파일이 바뀌면 감지)
+    var validator: String? = nil
 
     var fraction: Double? {
         guard totalBytes > 0 else { return nil }
@@ -33,6 +48,6 @@ struct DownloadItem: Codable, Identifiable, Equatable {
     }
 
     var isActive: Bool {
-        state == .queued || state == .downloading || state == .waiting
+        state == .queued || state == .downloading || state == .waiting || state == .merging
     }
 }
